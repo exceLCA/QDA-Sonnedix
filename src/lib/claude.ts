@@ -112,7 +112,7 @@ export class ClaudeAnalysisError extends Error {
   }
 }
 
-export async function analyzeDocument(text: string, filename: string): Promise<DocumentAnalysis> {
+function getAnthropicClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || apiKey.startsWith("sk-ant-your-key")) {
     throw new ClaudeAnalysisError(
@@ -120,21 +120,20 @@ export async function analyzeDocument(text: string, filename: string): Promise<D
       500
     );
   }
+  return new Anthropic({ apiKey });
+}
 
-  const anthropic = new Anthropic({ apiKey });
-
+async function runAnalysis(
+  anthropic: Anthropic,
+  messages: Anthropic.MessageParam[]
+): Promise<DocumentAnalysis> {
   let message;
   try {
     message = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Filename: ${filename}\n\n--- DOCUMENT TEXT START ---\n${text}\n--- DOCUMENT TEXT END ---`,
-        },
-      ],
+      messages,
       tools: [ANALYSIS_TOOL],
       tool_choice: { type: "tool", name: TOOL_NAME },
     });
@@ -148,10 +147,42 @@ export async function analyzeDocument(text: string, filename: string): Promise<D
   const toolUse = message.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
   );
-
   if (!toolUse) {
     throw new ClaudeAnalysisError("Claude did not return a structured analysis.", 502);
   }
-
   return toolUse.input as DocumentAnalysis;
+}
+
+export async function analyzeDocument(text: string, filename: string): Promise<DocumentAnalysis> {
+  const anthropic = getAnthropicClient();
+  return runAnalysis(anthropic, [
+    {
+      role: "user",
+      content: `Filename: ${filename}\n\n--- DOCUMENT TEXT START ---\n${text}\n--- DOCUMENT TEXT END ---`,
+    },
+  ]);
+}
+
+// PDFs are sent as raw bytes so pdfjs-dist is never needed — Lambda-safe.
+export async function analyzeDocumentPdf(pdfBuffer: Buffer, filename: string): Promise<DocumentAnalysis> {
+  const anthropic = getAnthropicClient();
+  return runAnalysis(anthropic, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "document" as const,
+          source: {
+            type: "base64" as const,
+            media_type: "application/pdf" as const,
+            data: pdfBuffer.toString("base64"),
+          },
+        },
+        {
+          type: "text" as const,
+          text: `Filename: ${filename}`,
+        },
+      ],
+    },
+  ]);
 }

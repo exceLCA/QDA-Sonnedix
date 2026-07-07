@@ -1,5 +1,4 @@
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 
 export const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".txt"] as const;
 export const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4MB — stays under Vercel's serverless request body limit
@@ -10,6 +9,10 @@ export class ExtractionError extends Error {}
 function getExtension(filename: string): string {
   const idx = filename.lastIndexOf(".");
   return idx === -1 ? "" : filename.slice(idx).toLowerCase();
+}
+
+export function isPdfFile(filename: string, mimeType: string): boolean {
+  return getExtension(filename) === ".pdf" || mimeType === "application/pdf";
 }
 
 export function isAcceptedFile(filename: string, mimeType: string): boolean {
@@ -27,15 +30,7 @@ export async function extractText(buffer: Buffer, filename: string, mimeType: st
 
   let text: string;
 
-  if (ext === ".pdf" || mimeType === "application/pdf") {
-    const parser = new PDFParse({ data: buffer });
-    try {
-      const result = await parser.getText();
-      text = result.text;
-    } finally {
-      await parser.destroy();
-    }
-  } else if (
+  if (
     ext === ".docx" ||
     mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   ) {

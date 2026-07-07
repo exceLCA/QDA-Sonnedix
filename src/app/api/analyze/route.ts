@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ClaudeAnalysisError, analyzeDocument } from "@/lib/claude";
-import { ExtractionError, MAX_FILE_SIZE_BYTES, extractText, isAcceptedFile } from "@/lib/extract-text";
+import { ClaudeAnalysisError, analyzeDocument, analyzeDocumentPdf } from "@/lib/claude";
+import { ExtractionError, MAX_FILE_SIZE_BYTES, extractText, isAcceptedFile, isPdfFile } from "@/lib/extract-text";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -39,8 +39,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const text = await extractText(buffer, file.name, file.type);
-    const analysis = await analyzeDocument(text, file.name);
+
+    // PDFs go directly to Claude as raw bytes — no pdf-parse/pdfjs-dist needed.
+    // DOCX and TXT are extracted to text first via mammoth / utf-8 decode.
+    const analysis = isPdfFile(file.name, file.type)
+      ? await analyzeDocumentPdf(buffer, file.name)
+      : await analyzeDocument(await extractText(buffer, file.name, file.type), file.name);
 
     return NextResponse.json({ filename: file.name, analysis });
   } catch (err) {
